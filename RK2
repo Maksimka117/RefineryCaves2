@@ -1,0 +1,799 @@
+-- Universal Control Panel by BazzukoIblan
+-- RayField Version
+
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "Universal Control Panel",
+   Icon = 0,
+   LoadingTitle = "Universal Control Panel",
+   LoadingSubtitle = "by BazzukoIblan",
+   Theme = "Default",
+   ToggleUIKeybind = Enum.KeyCode.RightControl,
+   
+   ConfigurationSaving = {
+      Enabled = true,
+      FolderName = "BazzukoPanel",
+      FileName = "UniversalControlPanel"
+   },
+})
+
+-- Key System
+local correctKey = "BazzukoHuesos"
+local isUnlocked = false
+
+-- Telekinesis System
+local telekinesisEnabled = false
+local telekinesisParts = {}
+local telekinesisConnection = nil
+local telekinesisMode = "single"
+local telekinesisDistance = 10
+local telekinesisRadius = 10
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
+
+-- Player Systems
+local walkSpeed = 16
+local jumpPower = 50
+local flySpeed = 50
+local noclipEnabled = false
+local flyEnabled = false
+local espEnabled = false
+
+-- Key System Tab
+local KeyTab = Window:CreateTab("🔑 Key System", 0)
+
+local KeySection = KeyTab:CreateSection("🔐 Authentication Required")
+
+local keyInputValue = ""
+
+local KeyInput = KeyTab:CreateInput({
+   Name = "Enter Key",
+   PlaceholderText = "BazzukoHuesos",
+   RemoveTextAfterFocusLost = false,
+   Callback = function(Text)
+      keyInputValue = Text
+   end,
+})
+
+KeyTab:CreateButton({
+   Name = "✅ Verify Key",
+   Callback = function()
+      if keyInputValue == correctKey then
+         isUnlocked = true
+         Rayfield:Notify({
+            Title = "✅ Success",
+            Content = "Key verified! All features unlocked.",
+            Duration = 5,
+            Image = 0,
+         })
+      else
+         Rayfield:Notify({
+            Title = "❌ Error",
+            Content = "Invalid key! Please try again.",
+            Duration = 5,
+            Image = 0,
+         })
+      end
+   end,
+})
+
+-- Telekinesis Tab
+local TelekinesisTab = Window:CreateTab("🌀 Telekinesis", 0)
+
+local TelekinesisSection = TelekinesisTab:CreateSection("🌀 Telekinesis Controls")
+
+local function isPlayerPart(part)
+    local model = part:FindFirstAncestorOfClass("Model")
+    if model then
+        local humanoid = model:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            local player = Players:GetPlayerFromCharacter(model)
+            if player then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function canPickupPart(part)
+    if not part:IsA("BasePart") then return false end
+    if part.Anchored then return false end
+    if part.Locked then return false end
+    if isPlayerPart(part) then return false end
+    local tool = part:FindFirstAncestorOfClass("Tool")
+    if tool then return false end
+    return true
+end
+
+local function getTargetPosition()
+    local camera = workspace.CurrentCamera
+    local mouseRay = camera:ScreenPointToRay(Mouse.X, Mouse.Y)
+    return camera.CFrame.Position + mouseRay.Direction * telekinesisDistance
+end
+
+local function findPartsInRadius(centerPosition, radius)
+    local foundParts = {}
+    for _, part in pairs(workspace:GetDescendants()) do
+        if canPickupPart(part) then
+            local distance = (part.Position - centerPosition).Magnitude
+            if distance <= radius then
+                table.insert(foundParts, part)
+            end
+        end
+    end
+    return foundParts
+end
+
+local function pickupSinglePart(part)
+    if not canPickupPart(part) then return nil end
+    
+    part.CustomPhysicalProperties = PhysicalProperties.new(0.1, 0, 0, 0, 0)
+    
+    local bodyPosition = Instance.new("BodyPosition")
+    bodyPosition.Position = getTargetPosition()
+    bodyPosition.MaxForce = Vector3.new(40000, 40000, 40000)
+    bodyPosition.P = 10000
+    bodyPosition.D = 1000
+    bodyPosition.Parent = part
+    
+    local bodyGyro = Instance.new("BodyGyro")
+    bodyGyro.MaxTorque = Vector3.new(40000, 40000, 40000)
+    bodyGyro.P = 10000
+    bodyGyro.D = 1000
+    bodyGyro.CFrame = part.CFrame
+    bodyGyro.Parent = part
+    
+    local highlight = Instance.new("SelectionBox")
+    highlight.Adornee = part
+    highlight.Color3 = Color3.fromRGB(0, 255, 127)
+    highlight.LineThickness = 0.05
+    highlight.Parent = part
+    
+    return {
+        part = part,
+        bodyPosition = bodyPosition,
+        bodyGyro = bodyGyro,
+        highlight = highlight,
+        offset = Vector3.new(0, 0, 0)
+    }
+end
+
+local function pickupMultipleParts(centerPosition)
+    local parts = findPartsInRadius(centerPosition, telekinesisRadius)
+    local pickedParts = {}
+    
+    for _, part in pairs(parts) do
+        local partData = pickupSinglePart(part)
+        if partData then
+            partData.offset = part.Position - centerPosition
+            table.insert(pickedParts, partData)
+        end
+    end
+    
+    return pickedParts
+end
+
+local function releasePart(partData)
+    if partData.bodyPosition then partData.bodyPosition:Destroy() end
+    if partData.bodyGyro then partData.bodyGyro:Destroy() end
+    if partData.highlight then partData.highlight:Destroy() end
+    if partData.part then partData.part.CustomPhysicalProperties = nil end
+end
+
+local function releaseAllParts()
+    for _, partData in pairs(telekinesisParts) do
+        releasePart(partData)
+    end
+    telekinesisParts = {}
+end
+
+local TelekinesisToggle = TelekinesisTab:CreateToggle({
+   Name = "🌀 Enable Telekinesis",
+   CurrentValue = false,
+   Flag = "TelekinesisToggle",
+   Callback = function(Value)
+      if not isUnlocked then
+         Rayfield:Notify({
+            Title = "🔒 Locked",
+            Content = "Please verify key first!",
+            Duration = 3,
+            Image = 0,
+         })
+         return
+      end
+      
+      telekinesisEnabled = Value
+      if not telekinesisEnabled then
+         releaseAllParts()
+         if telekinesisConnection then
+            telekinesisConnection:Disconnect()
+            telekinesisConnection = nil
+         end
+      else
+         telekinesisConnection = RunService.Heartbeat:Connect(function()
+            if telekinesisEnabled and #telekinesisParts > 0 then
+                local targetPosition = getTargetPosition()
+                
+                for i, partData in pairs(telekinesisParts) do
+                    if partData.bodyPosition then
+                        if telekinesisMode == "single" then
+                            partData.bodyPosition.Position = targetPosition
+                        else
+                            partData.bodyPosition.Position = targetPosition + partData.offset
+                        end
+                        
+                        if partData.bodyGyro then
+                            partData.bodyGyro.CFrame = partData.bodyGyro.CFrame:Lerp(
+                                CFrame.lookAt(partData.part.Position, targetPosition), 0.1
+                            )
+                        end
+                    end
+                end
+            end
+         end)
+      end
+   end,
+})
+
+local TelekinesisMode = TelekinesisTab:CreateDropdown({
+   Name = "🎯 Telekinesis Mode",
+   Options = {"Single Object", "Multiple Objects"},
+   CurrentOption = "Single Object",
+   Flag = "TelekinesisMode",
+   Callback = function(Option)
+      if not isUnlocked then
+         Rayfield:Notify({
+            Title = "🔒 Locked",
+            Content = "Please verify key first!",
+            Duration = 3,
+            Image = 0,
+         })
+         return
+      end
+      
+      telekinesisMode = Option == "Single Object" and "single" or "multi"
+      if telekinesisMode == "single" and #telekinesisParts > 1 then
+         for i = 2, #telekinesisParts do
+            releasePart(telekinesisParts[i])
+         end
+         telekinesisParts = {telekinesisParts[1]}
+      end
+   end,
+})
+
+local DistanceSlider = TelekinesisTab:CreateSlider({
+   Name = "📏 Distance",
+   Range = {2, 100},
+   Increment = 1,
+   Suffix = "studs",
+   CurrentValue = 10,
+   Flag = "DistanceSlider",
+   Callback = function(Value)
+      if not isUnlocked then
+         Rayfield:Notify({
+            Title = "🔒 Locked",
+            Content = "Please verify key first!",
+            Duration = 3,
+            Image = 0,
+         })
+         return
+      end
+      telekinesisDistance = Value
+   end,
+})
+
+local RadiusSlider = TelekinesisTab:CreateSlider({
+   Name = "🎯 Grab Radius",
+   Range = {5, 50},
+   Increment = 1,
+   Suffix = "studs",
+   CurrentValue = 10,
+   Flag = "RadiusSlider",
+   Callback = function(Value)
+      if not isUnlocked then
+         Rayfield:Notify({
+            Title = "🔒 Locked",
+            Content = "Please verify key first!",
+            Duration = 3,
+            Image = 0,
+         })
+         return
+      end
+      telekinesisRadius = Value
+   end,
+})
+
+TelekinesisTab:CreateButton({
+   Name = "🔄 Release All Objects",
+   Callback = function()
+      if not isUnlocked then
+         Rayfield:Notify({
+            Title = "🔒 Locked",
+            Content = "Please verify key first!",
+            Duration = 3,
+            Image = 0,
+         })
+         return
+      end
+      releaseAllParts()
+   end,
+})
+
+local ControlsSection = TelekinesisTab:CreateSection("ℹ️ Controls")
+TelekinesisTab:CreateLabel("LMB - Grab")
+TelekinesisTab:CreateLabel("Release LMB - Release")
+TelekinesisTab:CreateLabel("Mouse Wheel - Adjust Distance")
+
+-- Input Handlers
+local function handleTelekinesisInput(input, gameProcessed)
+    if gameProcessed or not telekinesisEnabled or not isUnlocked then return end
+    
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        if input.UserInputState == Enum.UserInputState.Begin then
+            local target = Mouse.Target
+            if target and canPickupPart(target) then
+                if telekinesisMode == "single" then
+                    local partData = pickupSinglePart(target)
+                    if partData then
+                        telekinesisParts = {partData}
+                    end
+                else
+                    local centerPosition = target.Position
+                    telekinesisParts = pickupMultipleParts(centerPosition)
+                end
+            end
+        elseif input.UserInputState == Enum.UserInputState.End then
+            releaseAllParts()
+        end
+    end
+end
+
+UserInputService.InputBegan:Connect(handleTelekinesisInput)
+UserInputService.InputEnded:Connect(handleTelekinesisInput)
+
+UserInputService.InputChanged:Connect(function(input, gameProcessed)
+    if gameProcessed or not telekinesisEnabled or not isUnlocked then return end
+    
+    if input.UserInputType == Enum.UserInputType.MouseWheel then
+        if input.Position.Z > 0 then
+            telekinesisDistance = math.min(telekinesisDistance + 5, 100)
+        else
+            telekinesisDistance = math.max(telekinesisDistance - 5, 2)
+        end
+    end
+end)
+
+-- Player Tab
+local PlayerTab = Window:CreateTab("👤 Player", 0)
+
+local PlayerSection = PlayerTab:CreateSection("Player Modifications")
+
+local function updatePlayerStats()
+    local character = LocalPlayer.Character
+    if character then
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid.WalkSpeed = walkSpeed
+            humanoid.JumpPower = jumpPower
+        end
+    end
+end
+
+-- Fly System
+local flyConnection
+local function toggleFly()
+    if flyEnabled then
+        -- Disable fly
+        if flyConnection then
+            flyConnection:Disconnect()
+            flyConnection = nil
+        end
+        local character = LocalPlayer.Character
+        if character then
+            local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+            if humanoidRootPart then
+                local bodyVelocity = humanoidRootPart:FindFirstChild("FlyBodyVelocity")
+                local bodyGyro = humanoidRootPart:FindFirstChild("FlyBodyGyro")
+                
+                if bodyVelocity then bodyVelocity:Destroy() end
+                if bodyGyro then bodyGyro:Destroy() end
+            end
+        end
+        flyEnabled = false
+        Rayfield:Notify({
+            Title = "🕊️ Fly",
+            Content = "Fly disabled",
+            Duration = 3,
+            Image = 0,
+        })
+    else
+        -- Enable fly
+        local character = LocalPlayer.Character
+        if character then
+            local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+            if humanoidRootPart then
+                local bodyVelocity = Instance.new("BodyVelocity")
+                bodyVelocity.Name = "FlyBodyVelocity"
+                bodyVelocity.MaxForce = Vector3.new(40000, 40000, 40000)
+                bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+                bodyVelocity.Parent = humanoidRootPart
+                
+                local bodyGyro = Instance.new("BodyGyro")
+                bodyGyro.Name = "FlyBodyGyro"
+                bodyGyro.MaxTorque = Vector3.new(40000, 40000, 40000)
+                bodyGyro.CFrame = humanoidRootPart.CFrame
+                bodyGyro.Parent = humanoidRootPart
+                
+                flyEnabled = true
+                Rayfield:Notify({
+                    Title = "🕊️ Fly",
+                    Content = "Fly enabled - Use WASD, Space, Shift to fly",
+                    Duration = 5,
+                    Image = 0,
+                })
+                
+                -- Fly handler
+                flyConnection = RunService.Heartbeat:Connect(function()
+                    if not flyEnabled or not character or not humanoidRootPart then
+                        if flyConnection then
+                            flyConnection:Disconnect()
+                        end
+                        return
+                    end
+                    
+                    local bodyVelocity = humanoidRootPart:FindFirstChild("FlyBodyVelocity")
+                    local bodyGyro = humanoidRootPart:FindFirstChild("FlyBodyGyro")
+                    
+                    if not bodyVelocity or not bodyGyro then return end
+                    
+                    local velocity = Vector3.new(0, 0, 0)
+                    
+                    if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+                        velocity = velocity + (workspace.CurrentCamera.CFrame.LookVector * flySpeed)
+                    end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+                        velocity = velocity + (workspace.CurrentCamera.CFrame.LookVector * -flySpeed)
+                    end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+                        velocity = velocity + (workspace.CurrentCamera.CFrame.RightVector * -flySpeed)
+                    end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+                        velocity = velocity + (workspace.CurrentCamera.CFrame.RightVector * flySpeed)
+                    end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                        velocity = velocity + Vector3.new(0, flySpeed, 0)
+                    end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+                        velocity = velocity + Vector3.new(0, -flySpeed, 0)
+                    end
+                    
+                    bodyVelocity.Velocity = velocity
+                    bodyGyro.CFrame = workspace.CurrentCamera.CFrame
+                end)
+            end
+        end
+    end
+end
+
+-- Noclip System
+local noclipConnection
+local function toggleNoclip()
+    noclipEnabled = not noclipEnabled
+    
+    if noclipEnabled then
+        Rayfield:Notify({
+            Title = "👻 Noclip",
+            Content = "Noclip enabled",
+            Duration = 3,
+            Image = 0,
+        })
+        noclipConnection = RunService.Stepped:Connect(function()
+            if noclipEnabled and LocalPlayer.Character then
+                for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                    end
+                end
+            end
+        end)
+    else
+        if noclipConnection then
+            noclipConnection:Disconnect()
+            noclipConnection = nil
+        end
+        if LocalPlayer.Character then
+            for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = true
+                end
+            end
+        end
+        Rayfield:Notify({
+            Title = "👻 Noclip",
+            Content = "Noclip disabled",
+            Duration = 3,
+            Image = 0,
+        })
+    end
+end
+
+-- ESP System
+local espHighlights = {}
+local function toggleESP()
+    espEnabled = not espEnabled
+    
+    if espEnabled then
+        Rayfield:Notify({
+            Title = "🎯 ESP",
+            Content = "ESP enabled",
+            Duration = 3,
+            Image = 0,
+        })
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                local function addESP(character)
+                    if character and not espHighlights[player] then
+                        local highlight = Instance.new("Highlight")
+                        highlight.Name = "ESP_Highlight"
+                        highlight.Adornee = character
+                        highlight.FillColor = Color3.fromRGB(255, 0, 0)
+                        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+                        highlight.FillTransparency = 0.5
+                        highlight.OutlineTransparency = 0
+                        highlight.Parent = character
+                        
+                        espHighlights[player] = highlight
+                    end
+                end
+                
+                if player.Character then
+                    addESP(player.Character)
+                end
+                
+                player.CharacterAdded:Connect(function(character)
+                    addESP(character)
+                end)
+            end
+        end
+    else
+        Rayfield:Notify({
+            Title = "🎯 ESP",
+            Content = "ESP disabled",
+            Duration = 3,
+            Image = 0,
+        })
+        for player, highlight in pairs(espHighlights) do
+            if highlight then
+                highlight:Destroy()
+            end
+        end
+        espHighlights = {}
+    end
+end
+
+-- Player UI Elements
+local WalkSpeedSlider = PlayerTab:CreateSlider({
+   Name = "🚶 Walk Speed",
+   Range = {16, 200},
+   Increment = 1,
+   Suffix = "speed",
+   CurrentValue = 16,
+   Flag = "WalkSpeedSlider",
+   Callback = function(Value)
+      if not isUnlocked then
+         Rayfield:Notify({
+            Title = "🔒 Locked",
+            Content = "Please verify key first!",
+            Duration = 3,
+            Image = 0,
+         })
+         return
+      end
+      walkSpeed = Value
+      updatePlayerStats()
+   end,
+})
+
+local JumpPowerSlider = PlayerTab:CreateSlider({
+   Name = "🦘 Jump Power",
+   Range = {50, 200},
+   Increment = 1,
+   Suffix = "power",
+   CurrentValue = 50,
+   Flag = "JumpPowerSlider",
+   Callback = function(Value)
+      if not isUnlocked then
+         Rayfield:Notify({
+            Title = "🔒 Locked",
+            Content = "Please verify key first!",
+            Duration = 3,
+            Image = 0,
+         })
+         return
+      end
+      jumpPower = Value
+      updatePlayerStats()
+   end,
+})
+
+local FlyToggle = PlayerTab:CreateToggle({
+   Name = "🕊️ Fly",
+   CurrentValue = false,
+   Flag = "FlyToggle",
+   Callback = function(Value)
+      if not isUnlocked then
+         Rayfield:Notify({
+            Title = "🔒 Locked",
+            Content = "Please verify key first!",
+            Duration = 3,
+            Image = 0,
+         })
+         return
+      end
+      if Value then
+         toggleFly()
+      else
+         if flyEnabled then
+            toggleFly()
+         end
+      end
+   end,
+})
+
+local FlySpeedSlider = PlayerTab:CreateSlider({
+   Name = "✈️ Fly Speed",
+   Range = {10, 200},
+   Increment = 1,
+   Suffix = "speed",
+   CurrentValue = 50,
+   Flag = "FlySpeedSlider",
+   Callback = function(Value)
+      if not isUnlocked then
+         Rayfield:Notify({
+            Title = "🔒 Locked",
+            Content = "Please verify key first!",
+            Duration = 3,
+            Image = 0,
+         })
+         return
+      end
+      flySpeed = Value
+   end,
+})
+
+local NoclipToggle = PlayerTab:CreateToggle({
+   Name = "👻 Noclip",
+   CurrentValue = false,
+   Flag = "NoclipToggle",
+   Callback = function(Value)
+      if not isUnlocked then
+         Rayfield:Notify({
+            Title = "🔒 Locked",
+            Content = "Please verify key first!",
+            Duration = 3,
+            Image = 0,
+         })
+         return
+      end
+      if Value then
+         toggleNoclip()
+      else
+         if noclipEnabled then
+            toggleNoclip()
+         end
+      end
+   end,
+})
+
+local ESPToggle = PlayerTab:CreateToggle({
+   Name = "🎯 Player ESP",
+   CurrentValue = false,
+   Flag = "ESPToggle",
+   Callback = function(Value)
+      if not isUnlocked then
+         Rayfield:Notify({
+            Title = "🔒 Locked",
+            Content = "Please verify key first!",
+            Duration = 3,
+            Image = 0,
+         })
+         return
+      end
+      if Value then
+         toggleESP()
+      else
+         if espEnabled then
+            toggleESP()
+         end
+      end
+   end,
+})
+
+PlayerTab:CreateButton({
+   Name = "🔄 Refresh Character",
+   Callback = function()
+      if not isUnlocked then
+         Rayfield:Notify({
+            Title = "🔒 Locked",
+            Content = "Please verify key first!",
+            Duration = 3,
+            Image = 0,
+         })
+         return
+      end
+      updatePlayerStats()
+      Rayfield:Notify({
+         Title = "🔁 Character",
+         Content = "Character stats refreshed",
+         Duration = 3,
+         Image = 0,
+      })
+   end,
+})
+
+-- Credits Tab
+local CreditsTab = Window:CreateTab("⭐ Credits", 0)
+
+local CreatorSection = CreditsTab:CreateSection("👑 Creator Information")
+CreditsTab:CreateLabel("Universal Control Panel")
+CreditsTab:CreateLabel("Created by BazzukoIblan")
+
+local ProfileSection = CreditsTab:CreateSection("🎮 Roblox Profile")
+CreditsTab:CreateLabel("User ID: 8958465729")
+CreditsTab:CreateLabel("Experience the ultimate control!")
+
+CreditsTab:CreateButton({
+   Name = "🖼️ View Creator Avatar",
+   Callback = function()
+      Rayfield:Notify({
+         Title = "👑 BazzukoIblan",
+         Content = "Professional Scripter & Developer",
+         Duration = 5,
+         Image = 0,
+      })
+   end,
+})
+
+local FeaturesSection = CreditsTab:CreateSection("💫 Features")
+CreditsTab:CreateLabel("• Advanced Telekinesis System")
+CreditsTab:CreateLabel("• Player Modifications")
+CreditsTab:CreateLabel("• Beautiful RayField Interface")
+CreditsTab:CreateLabel("• Key Authentication System")
+
+local VersionSection = CreditsTab:CreateSection("🚀 Version")
+CreditsTab:CreateLabel("Universal Control Panel v2.0")
+CreditsTab:CreateLabel("Powered by RayField Library")
+
+-- Auto-update player stats when character respawns
+LocalPlayer.CharacterAdded:Connect(function(character)
+    wait(2)
+    updatePlayerStats()
+    if noclipEnabled then
+        -- Restart noclip for new character
+        local temp = noclipEnabled
+        noclipEnabled = false
+        toggleNoclip()
+    end
+end)
+
+-- Initialize
+updatePlayerStats()
+
+-- Success notification
+Rayfield:Notify({
+   Title = "✨ Universal Control Panel",
+   Content = "Successfully loaded! Created by BazzukoIblan\nPlease enter key: BazzukoHuesos",
+   Duration = 8,
+   Image = 0,
+})
+
+print("✨ Universal Control Panel loaded successfully!")
+print("👑 Created by: BazzukoIblan")
+print("🔑 Key: BazzukoHuesos")
+print("🚀 Enjoy using all features!")
