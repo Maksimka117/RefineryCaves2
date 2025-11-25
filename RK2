@@ -42,7 +42,43 @@ local jumpPower = 50
 local flySpeed = 50
 local noclipEnabled = false
 local flyEnabled = false
-local espEnabled = false
+local freecamEnabled = false
+local freecamSpeed = 10
+
+-- ESP Systems
+local playerEspEnabled = false
+local oreEspEnabled = false
+local treeEspEnabled = false
+local selectedOres = {}
+local selectedTrees = {}
+local espHighlights = {}
+
+-- Ore List
+local allOres = {
+    "Abyssalite", "Amber", "Ancient Rune", "Bauxite", "Blastshard", "BlueFlower", "Clay", "Cloudnite", 
+    "Coal", "Cobalt", "Copper", "Crimsone", "Deepslate", "Diamond", "Dirt", "Emerald", "Flower Grass", 
+    "Gold", "Granite", "Hallow", "Ice", "Iron", "Jade", "Limestone", "Lithium", "Magma", "Marble", 
+    "Meteorite", "Mud", "Mushroom", "Noir", "Null", "Obsidian", "Odd Stone", "Pink Diamond", "Pumpkin", 
+    "Quartz", "Ruby", "Salt", "Sand", "Sapphire", "Scarlet", "Silver", "Snow", "Soulstone", "Sphalerite", 
+    "Sulfur", "Tall Grass", "Tin", "Titanium", "Topaz", "Volcanium", "Voltshard", "Wildcore"
+}
+
+-- Tree List
+local allTrees = {
+    "Acacia", "Ancient Coldwood", "Atlas Tree", "Birch", "Blue Coral", "Carroot", "Cherry", 
+    "Festive Tree 1", "Festive Tree 2", "Festive Tree 3", "Festive Tree 4", "Fir", "Glacial", 
+    "Goldwood Tree", "Greatwood", "Green Coral", "Kanzan Tree", "Kelp", "Kojo Tree", "Lumena", 
+    "Lush Oak", "Magnolia Tree", "Maple", "Nightshade", "Oak", "Odd Tree", "Orewood", "Palm", 
+    "Pine", "Pink Coral", "Red Coral", "Redwood", "Sakura Tree", "Scorched", "Silverwood Tree", 
+    "Spook", "Swampine", "Vampiric Oak", "White Coral", "Wicked", "Willow", "Yellow Coral"
+}
+
+-- Teleport Locations
+local teleportLocations = {
+    "Checkpoint", "Ferry_Legacy", "FurnitureStore", "LandAgency", "LushShop", "Nautic Finds", 
+    "Nautic_Sellary", "NightshadeSantuary", "Nova_Sellary", "Shack", "TestLands", "UCS", 
+    "Vi's Lab", "Vi's Logics"
+}
 
 -- Key System Tab
 local KeyTab = Window:CreateTab("🔑 Key System", 0)
@@ -523,57 +559,88 @@ local function toggleNoclip()
     end
 end
 
--- ESP System
-local espHighlights = {}
-local function toggleESP()
-    espEnabled = not espEnabled
-    
-    if espEnabled then
+-- Freecam System
+local freecamConnection
+local originalCamera
+local freecamPart
+
+local function toggleFreecam()
+    if freecamEnabled then
+        -- Disable Freecam
+        if freecamConnection then
+            freecamConnection:Disconnect()
+            freecamConnection = nil
+        end
+        
+        if freecamPart then
+            freecamPart:Destroy()
+            freecamPart = nil
+        end
+        
+        if originalCamera then
+            workspace.CurrentCamera.CameraType = originalCamera
+            originalCamera = nil
+        end
+        
+        freecamEnabled = false
         Rayfield:Notify({
-            Title = "🎯 ESP",
-            Content = "ESP enabled",
+            Title = "📷 Freecam",
+            Content = "Freecam disabled",
             Duration = 3,
             Image = 0,
         })
-        for _, player in pairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer then
-                local function addESP(character)
-                    if character and not espHighlights[player] then
-                        local highlight = Instance.new("Highlight")
-                        highlight.Name = "ESP_Highlight"
-                        highlight.Adornee = character
-                        highlight.FillColor = Color3.fromRGB(255, 0, 0)
-                        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-                        highlight.FillTransparency = 0.5
-                        highlight.OutlineTransparency = 0
-                        highlight.Parent = character
-                        
-                        espHighlights[player] = highlight
-                    end
-                end
-                
-                if player.Character then
-                    addESP(player.Character)
-                end
-                
-                player.CharacterAdded:Connect(function(character)
-                    addESP(character)
-                end)
-            end
-        end
     else
+        -- Enable Freecam
+        originalCamera = workspace.CurrentCamera.CameraType
+        workspace.CurrentCamera.CameraType = Enum.CameraType.Scriptable
+        
+        freecamPart = Instance.new("Part")
+        freecamPart.Name = "FreecamPart"
+        freecamPart.Anchored = true
+        freecamPart.CanCollide = false
+        freecamPart.Transparency = 1
+        freecamPart.Size = Vector3.new(1, 1, 1)
+        freecamPart.CFrame = workspace.CurrentCamera.CFrame
+        freecamPart.Parent = workspace
+        
+        workspace.CurrentCamera.CFrame = freecamPart.CFrame
+        
+        freecamEnabled = true
         Rayfield:Notify({
-            Title = "🎯 ESP",
-            Content = "ESP disabled",
-            Duration = 3,
+            Title = "📷 Freecam",
+            Content = "Freecam enabled - Use WASD, Space, Shift to move",
+            Duration = 5,
             Image = 0,
         })
-        for player, highlight in pairs(espHighlights) do
-            if highlight then
-                highlight:Destroy()
+        
+        -- Freecam handler
+        freecamConnection = RunService.Heartbeat:Connect(function()
+            if not freecamEnabled or not freecamPart then return end
+            
+            local velocity = Vector3.new(0, 0, 0)
+            
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+                velocity = velocity + (freecamPart.CFrame.LookVector * freecamSpeed)
             end
-        end
-        espHighlights = {}
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+                velocity = velocity + (freecamPart.CFrame.LookVector * -freecamSpeed)
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+                velocity = velocity + (freecamPart.CFrame.RightVector * -freecamSpeed)
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+                velocity = velocity + (freecamPart.CFrame.RightVector * freecamSpeed)
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                velocity = velocity + Vector3.new(0, freecamSpeed, 0)
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+                velocity = velocity + Vector3.new(0, -freecamSpeed, 0)
+            end
+            
+            freecamPart.Position = freecamPart.Position + velocity
+            workspace.CurrentCamera.CFrame = freecamPart.CFrame
+        end)
     end
 end
 
@@ -691,10 +758,10 @@ local NoclipToggle = PlayerTab:CreateToggle({
    end,
 })
 
-local ESPToggle = PlayerTab:CreateToggle({
-   Name = "🎯 Player ESP",
+local FreecamToggle = PlayerTab:CreateToggle({
+   Name = "📷 Freecam",
    CurrentValue = false,
-   Flag = "ESPToggle",
+   Flag = "FreecamToggle",
    Callback = function(Value)
       if not isUnlocked then
          Rayfield:Notify({
@@ -706,12 +773,33 @@ local ESPToggle = PlayerTab:CreateToggle({
          return
       end
       if Value then
-         toggleESP()
+         toggleFreecam()
       else
-         if espEnabled then
-            toggleESP()
+         if freecamEnabled then
+            toggleFreecam()
          end
       end
+   end,
+})
+
+local FreecamSpeedSlider = PlayerTab:CreateSlider({
+   Name = "🎯 Freecam Speed",
+   Range = {5, 100},
+   Increment = 1,
+   Suffix = "speed",
+   CurrentValue = 10,
+   Flag = "FreecamSpeedSlider",
+   Callback = function(Value)
+      if not isUnlocked then
+         Rayfield:Notify({
+            Title = "🔒 Locked",
+            Content = "Please verify key first!",
+            Duration = 3,
+            Image = 0,
+         })
+         return
+      end
+      freecamSpeed = Value
    end,
 })
 
@@ -734,6 +822,452 @@ PlayerTab:CreateButton({
          Duration = 3,
          Image = 0,
       })
+   end,
+})
+
+-- ESP Tab
+local ESPTab = Window:CreateTab("🎯 ESP", 0)
+
+-- Player ESP
+local PlayerESPSection = ESPTab:CreateSection("👤 Player ESP")
+
+local function togglePlayerESP()
+    playerEspEnabled = not playerEspEnabled
+    
+    if playerEspEnabled then
+        Rayfield:Notify({
+            Title = "🎯 Player ESP",
+            Content = "Player ESP enabled",
+            Duration = 3,
+            Image = 0,
+        })
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                local function addESP(character)
+                    if character and not espHighlights[player] then
+                        local highlight = Instance.new("Highlight")
+                        highlight.Name = "PlayerESP_Highlight"
+                        highlight.Adornee = character
+                        highlight.FillColor = Color3.fromRGB(255, 0, 0)
+                        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+                        highlight.FillTransparency = 0.5
+                        highlight.OutlineTransparency = 0
+                        highlight.Parent = character
+                        
+                        espHighlights[player] = highlight
+                    end
+                end
+                
+                if player.Character then
+                    addESP(player.Character)
+                end
+                
+                player.CharacterAdded:Connect(function(character)
+                    addESP(character)
+                end)
+            end
+        end
+    else
+        Rayfield:Notify({
+            Title = "🎯 Player ESP",
+            Content = "Player ESP disabled",
+            Duration = 3,
+            Image = 0,
+        })
+        for player, highlight in pairs(espHighlights) do
+            if highlight and highlight.Name == "PlayerESP_Highlight" then
+                highlight:Destroy()
+                espHighlights[player] = nil
+            end
+        end
+    end
+end
+
+ESPTab:CreateToggle({
+   Name = "👤 Player ESP",
+   CurrentValue = false,
+   Flag = "PlayerESPToggle",
+   Callback = function(Value)
+      if not isUnlocked then
+         Rayfield:Notify({
+            Title = "🔒 Locked",
+            Content = "Please verify key first!",
+            Duration = 3,
+            Image = 0,
+         })
+         return
+      end
+      if Value then
+         togglePlayerESP()
+      else
+         if playerEspEnabled then
+            togglePlayerESP()
+         end
+      end
+   end,
+})
+
+-- Ore ESP
+local OreESPSection = ESPTab:CreateSection("⛏️ Ore ESP")
+
+local oreHighlights = {}
+
+local function updateOreESP()
+    -- Clear existing ore highlights
+    for oreName, highlight in pairs(oreHighlights) do
+        if highlight then
+            highlight:Destroy()
+        end
+    end
+    oreHighlights = {}
+    
+    if oreEspEnabled then
+        local oresFolder = workspace:FindFirstChild("WorldSpawn")
+        if oresFolder then
+            oresFolder = oresFolder:FindFirstChild("Ores")
+            if oresFolder then
+                for _, ore in pairs(oresFolder:GetDescendants()) do
+                    if ore:IsA("Part") or ore:IsA("MeshPart") then
+                        local oreName = ore.Name
+                        if selectedOres[oreName] then
+                            local highlight = Instance.new("Highlight")
+                            highlight.Name = "OreESP_" .. oreName
+                            highlight.Adornee = ore
+                            highlight.FillColor = Color3.fromRGB(0, 255, 0)
+                            highlight.OutlineColor = Color3.fromRGB(255, 255, 0)
+                            highlight.FillTransparency = 0.3
+                            highlight.OutlineTransparency = 0
+                            highlight.Parent = ore
+                            
+                            oreHighlights[oreName] = highlight
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+local function toggleOreESP()
+    oreEspEnabled = not oreEspEnabled
+    
+    if oreEspEnabled then
+        Rayfield:Notify({
+            Title = "⛏️ Ore ESP",
+            Content = "Ore ESP enabled",
+            Duration = 3,
+            Image = 0,
+        })
+        updateOreESP()
+        
+        -- Listen for new ores
+        local oresFolder = workspace:FindFirstChild("WorldSpawn")
+        if oresFolder then
+            oresFolder = oresFolder:FindFirstChild("Ores")
+            if oresFolder then
+                oresFolder.DescendantAdded:Connect(function(descendant)
+                    if oreEspEnabled and (descendant:IsA("Part") or descendant:IsA("MeshPart")) then
+                        if selectedOres[descendant.Name] then
+                            wait(0.1) -- Wait for ore to load
+                            updateOreESP()
+                        end
+                    end
+                end)
+            end
+        end
+    else
+        Rayfield:Notify({
+            Title = "⛏️ Ore ESP",
+            Content = "Ore ESP disabled",
+            Duration = 3,
+            Image = 0,
+        })
+        for oreName, highlight in pairs(oreHighlights) do
+            if highlight then
+                highlight:Destroy()
+            end
+        end
+        oreHighlights = {}
+    end
+end
+
+-- Create ore selection
+for _, oreName in pairs(allOres) do
+    ESPTab:CreateToggle({
+        Name = oreName,
+        CurrentValue = false,
+        Flag = "OreSelect_" .. oreName,
+        Callback = function(Value)
+            if not isUnlocked then
+                Rayfield:Notify({
+                    Title = "🔒 Locked",
+                    Content = "Please verify key first!",
+                    Duration = 3,
+                    Image = 0,
+                })
+                return
+            end
+            selectedOres[oreName] = Value
+            if oreEspEnabled then
+                updateOreESP()
+            end
+        end,
+    })
+end
+
+ESPTab:CreateToggle({
+   Name = "⛏️ Enable Ore ESP",
+   CurrentValue = false,
+   Flag = "OreESPToggle",
+   Callback = function(Value)
+      if not isUnlocked then
+         Rayfield:Notify({
+            Title = "🔒 Locked",
+            Content = "Please verify key first!",
+            Duration = 3,
+            Image = 0,
+         })
+         return
+      end
+      if Value then
+         toggleOreESP()
+      else
+         if oreEspEnabled then
+            toggleOreESP()
+         end
+      end
+   end,
+})
+
+-- Tree ESP
+local TreeESPSection = ESPTab:CreateSection("🌳 Tree ESP")
+
+local treeHighlights = {}
+
+local function updateTreeESP()
+    -- Clear existing tree highlights
+    for treeName, highlight in pairs(treeHighlights) do
+        if highlight then
+            highlight:Destroy()
+        end
+    end
+    treeHighlights = {}
+    
+    if treeEspEnabled then
+        local treesFolder = workspace:FindFirstChild("WorldSpawn")
+        if treesFolder then
+            treesFolder = treesFolder:FindFirstChild("Trees")
+            if treesFolder then
+                for _, tree in pairs(treesFolder:GetDescendants()) do
+                    if tree:IsA("Part") or tree:IsA("MeshPart") then
+                        local treeName = tree.Name
+                        if selectedTrees[treeName] then
+                            local highlight = Instance.new("Highlight")
+                            highlight.Name = "TreeESP_" .. treeName
+                            highlight.Adornee = tree
+                            highlight.FillColor = Color3.fromRGB(139, 69, 19) -- Brown color for trees
+                            highlight.OutlineColor = Color3.fromRGB(0, 255, 0)
+                            highlight.FillTransparency = 0.3
+                            highlight.OutlineTransparency = 0
+                            highlight.Parent = tree
+                            
+                            treeHighlights[treeName] = highlight
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+local function toggleTreeESP()
+    treeEspEnabled = not treeEspEnabled
+    
+    if treeEspEnabled then
+        Rayfield:Notify({
+            Title = "🌳 Tree ESP",
+            Content = "Tree ESP enabled",
+            Duration = 3,
+            Image = 0,
+        })
+        updateTreeESP()
+        
+        -- Listen for new trees
+        local treesFolder = workspace:FindFirstChild("WorldSpawn")
+        if treesFolder then
+            treesFolder = treesFolder:FindFirstChild("Trees")
+            if treesFolder then
+                treesFolder.DescendantAdded:Connect(function(descendant)
+                    if treeEspEnabled and (descendant:IsA("Part") or descendant:IsA("MeshPart")) then
+                        if selectedTrees[descendant.Name] then
+                            wait(0.1) -- Wait for tree to load
+                            updateTreeESP()
+                        end
+                    end
+                end)
+            end
+        end
+    else
+        Rayfield:Notify({
+            Title = "🌳 Tree ESP",
+            Content = "Tree ESP disabled",
+            Duration = 3,
+            Image = 0,
+        })
+        for treeName, highlight in pairs(treeHighlights) do
+            if highlight then
+                highlight:Destroy()
+            end
+        end
+        treeHighlights = {}
+    end
+end
+
+-- Create tree selection
+for _, treeName in pairs(allTrees) do
+    ESPTab:CreateToggle({
+        Name = treeName,
+        CurrentValue = false,
+        Flag = "TreeSelect_" .. treeName,
+        Callback = function(Value)
+            if not isUnlocked then
+                Rayfield:Notify({
+                    Title = "🔒 Locked",
+                    Content = "Please verify key first!",
+                    Duration = 3,
+                    Image = 0,
+                })
+                return
+            end
+            selectedTrees[treeName] = Value
+            if treeEspEnabled then
+                updateTreeESP()
+            end
+        end,
+    })
+end
+
+ESPTab:CreateToggle({
+   Name = "🌳 Enable Tree ESP",
+   CurrentValue = false,
+   Flag = "TreeESPToggle",
+   Callback = function(Value)
+      if not isUnlocked then
+         Rayfield:Notify({
+            Title = "🔒 Locked",
+            Content = "Please verify key first!",
+            Duration = 3,
+            Image = 0,
+         })
+         return
+      end
+      if Value then
+         toggleTreeESP()
+      else
+         if treeEspEnabled then
+            toggleTreeESP()
+         end
+      end
+   end,
+})
+
+-- Teleports Tab
+local TeleportsTab = Window:CreateTab("📍 Teleports", 0)
+
+local TeleportsSection = TeleportsTab:CreateSection("📍 Teleport Locations")
+
+local selectedLocation = ""
+
+local function teleportToLocation(locationName)
+    if not isUnlocked then
+        Rayfield:Notify({
+            Title = "🔒 Locked",
+            Content = "Please verify key first!",
+            Duration = 3,
+            Image = 0,
+        })
+        return
+    end
+    
+    local structuresFolder = workspace:FindFirstChild("Map")
+    if structuresFolder then
+        structuresFolder = structuresFolder:FindFirstChild("Structures")
+        if structuresFolder then
+            local targetStructure = structuresFolder:FindFirstChild(locationName)
+            if targetStructure then
+                local character = LocalPlayer.Character
+                if character then
+                    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+                    if humanoidRootPart then
+                        -- Find a part in the structure to teleport to
+                        local targetPart = targetStructure:FindFirstChildOfClass("Part") or targetStructure:FindFirstChildOfClass("MeshPart")
+                        if targetPart then
+                            humanoidRootPart.CFrame = CFrame.new(targetPart.Position + Vector3.new(0, 10, 0))
+                            Rayfield:Notify({
+                                Title = "📍 Teleport",
+                                Content = "Teleported to " .. locationName,
+                                Duration = 3,
+                                Image = 0,
+                            })
+                        else
+                            Rayfield:Notify({
+                                Title = "❌ Error",
+                                Content = "No valid part found in " .. locationName,
+                                Duration = 3,
+                                Image = 0,
+                            })
+                        end
+                    end
+                end
+            else
+                Rayfield:Notify({
+                    Title = "❌ Error",
+                    Content = "Location " .. locationName .. " not found",
+                    Duration = 3,
+                    Image = 0,
+                })
+            end
+        else
+            Rayfield:Notify({
+                Title = "❌ Error",
+                Content = "Structures folder not found",
+                Duration = 3,
+                Image = 0,
+            })
+        end
+    else
+        Rayfield:Notify({
+            Title = "❌ Error",
+            Content = "Map folder not found",
+            Duration = 3,
+            Image = 0,
+        })
+    end
+end
+
+local LocationDropdown = TeleportsTab:CreateDropdown({
+   Name = "Select Location",
+   Options = teleportLocations,
+   CurrentOption = "",
+   Flag = "LocationDropdown",
+   Callback = function(Option)
+      selectedLocation = Option
+   end,
+})
+
+TeleportsTab:CreateButton({
+   Name = "📍 Teleport",
+   Callback = function()
+      if selectedLocation ~= "" then
+         teleportToLocation(selectedLocation)
+      else
+         Rayfield:Notify({
+            Title = "❌ Error",
+            Content = "Please select a location first",
+            Duration = 3,
+            Image = 0,
+         })
+      end
    end,
 })
 
@@ -763,6 +1297,8 @@ CreditsTab:CreateButton({
 local FeaturesSection = CreditsTab:CreateSection("💫 Features")
 CreditsTab:CreateLabel("• Advanced Telekinesis System")
 CreditsTab:CreateLabel("• Player Modifications")
+CreditsTab:CreateLabel("• ESP Systems (Player, Ore, Tree)")
+CreditsTab:CreateLabel("• Teleport System")
 CreditsTab:CreateLabel("• Beautiful RayField Interface")
 CreditsTab:CreateLabel("• Key Authentication System")
 
