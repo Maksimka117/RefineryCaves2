@@ -6,6 +6,7 @@ local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local StarterGui = game:GetService("StarterGui")
+local ContextActionService = game:GetService("ContextActionService")
 
 local LocalPlayer = Players.LocalPlayer
 if not LocalPlayer then
@@ -20,7 +21,6 @@ local Freecam = {} do
     local clamp = math.clamp
     local rad = math.rad
     
-    local ContextActionService = game:GetService("ContextActionService")
     local Camera = workspace.CurrentCamera
     
     workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
@@ -377,11 +377,33 @@ local Freecam = {} do
     function Freecam.IsEnabled()
         return enabled
     end
+    
+    -- Система активации по Shift+P
+    local function CheckMacro(macro)
+        for i = 1, #macro - 1 do
+            if not UserInputService:IsKeyDown(macro[i]) then
+                return
+            end
+        end
+        Freecam.Toggle()
+    end
+    
+    local function HandleActivationInput(action, state, input)
+        if state == Enum.UserInputState.Begin then
+            if input.KeyCode == FREECAM_MACRO_KB[#FREECAM_MACRO_KB] then
+                CheckMacro(FREECAM_MACRO_KB)
+            end
+        end
+        return Enum.ContextActionResult.Pass
+    end
+    
+    ContextActionService:BindActionAtPriority("FreecamToggle", HandleActivationInput, false, TOGGLE_INPUT_PRIORITY, FREECAM_MACRO_KB[#FREECAM_MACRO_KB])
 end
 
 -- ==================== MAIN GUI CREATION ====================
 local MainGUI = Instance.new("ScreenGui")
 MainGUI.Name = "MainMenuGUI"
+MainGUI.ResetOnSpawn = false -- Важно! Не пропадает после смерти
 MainGUI.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 MainGUI.Parent = game:GetService("CoreGui")
 
@@ -1355,6 +1377,7 @@ local carFlySpeed = 50
 local espBoxes = {}
 local connectionFly = nil
 local connectionNoclip = nil
+local connectionESP = nil
 
 -- Fly Section
 local FlyToggleButton = Instance.new("TextButton")
@@ -1512,30 +1535,38 @@ local function enableFly()
     end
     
     connectionFly = RunService.Heartbeat:Connect(function()
-        if not character or not character:FindFirstChild("HumanoidRootPart") then
+        if not character or not character:FindFirstChild("HumanoidRootPart") or not character:FindFirstChild("Humanoid") then
             return
         end
         
         local rootPart = character.HumanoidRootPart
+        local humanoid = character.Humanoid
+        
+        -- Отключаем гравитацию
+        humanoid.PlatformStand = true
+        
+        local velocity = Vector3.new(0, 0, 0)
         
         if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-            rootPart.CFrame = rootPart.CFrame + rootPart.CFrame.LookVector * (flySpeed / 100)
+            velocity = velocity + rootPart.CFrame.LookVector * flySpeed
         end
         if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-            rootPart.CFrame = rootPart.CFrame - rootPart.CFrame.LookVector * (flySpeed / 100)
+            velocity = velocity - rootPart.CFrame.LookVector * flySpeed
         end
         if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-            rootPart.CFrame = rootPart.CFrame - rootPart.CFrame.RightVector * (flySpeed / 100)
+            velocity = velocity - rootPart.CFrame.RightVector * flySpeed
         end
         if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-            rootPart.CFrame = rootPart.CFrame + rootPart.CFrame.RightVector * (flySpeed / 100)
+            velocity = velocity + rootPart.CFrame.RightVector * flySpeed
         end
         if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-            rootPart.CFrame = rootPart.CFrame + Vector3.new(0, flySpeed / 100, 0)
+            velocity = velocity + Vector3.new(0, flySpeed, 0)
         end
         if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift) then
-            rootPart.CFrame = rootPart.CFrame - Vector3.new(0, flySpeed / 100, 0)
+            velocity = velocity - Vector3.new(0, flySpeed, 0)
         end
+        
+        rootPart.Velocity = velocity
     end)
 end
 
@@ -1543,6 +1574,10 @@ local function disableFly()
     if connectionFly then
         connectionFly:Disconnect()
         connectionFly = nil
+    end
+    
+    if character and character:FindFirstChild("Humanoid") then
+        character.Humanoid.PlatformStand = false
     end
 end
 
@@ -1570,7 +1605,7 @@ local function enableNoclip()
     connectionNoclip = RunService.Stepped:Connect(function()
         if character then
             for _, part in pairs(character:GetDescendants()) do
-                if part:IsA("BasePart") and part.CanCollide then
+                if part:IsA("BasePart") then
                     part.CanCollide = false
                 end
             end
@@ -1597,6 +1632,7 @@ end
 local function createESPBox(playerChar)
     if espBoxes[playerChar] then
         espBoxes[playerChar]:Destroy()
+        espBoxes[playerChar] = nil
     end
     
     local highlight = Instance.new("Highlight")
@@ -1616,52 +1652,50 @@ local function createESPBox(playerChar)
     billboard.Size = UDim2.new(0, 200, 0, 50)
     billboard.AlwaysOnTop = true
     billboard.StudsOffset = Vector3.new(0, 3, 0)
-    billboard.Adornee = playerChar:FindFirstChild("Head") or playerChar:FindFirstChild("HumanoidRootPart")
-    billboard.Parent = MainGUI
-    
-    local textLabel = Instance.new("TextLabel")
-    textLabel.Name = "ESP_Label"
-    textLabel.Size = UDim2.new(1, 0, 1, 0)
-    textLabel.BackgroundTransparency = 1
-    textLabel.TextStrokeTransparency = 0
-    textLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-    textLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-    textLabel.Font = Enum.Font.GothamBold
-    textLabel.TextSize = 14
-    textLabel.Parent = billboard
-    
-    -- Функция обновления текста
-    local function updateESPText()
-        local player = Players:GetPlayerFromCharacter(playerChar)
-        if player then
-            local prefix = ""
-            local values = player:FindFirstChild("Values")
-            if values then
-                local prefixValue = values:FindFirstChild("Prefix")
-                if prefixValue and prefixValue:IsA("StringValue") then
-                    prefix = prefixValue.Value
+    local targetPart = playerChar:FindFirstChild("Head") or playerChar:FindFirstChild("HumanoidRootPart")
+    if targetPart then
+        billboard.Adornee = targetPart
+        billboard.Parent = MainGUI
+        
+        local textLabel = Instance.new("TextLabel")
+        textLabel.Name = "ESP_Label"
+        textLabel.Size = UDim2.new(1, 0, 1, 0)
+        textLabel.BackgroundTransparency = 1
+        textLabel.TextStrokeTransparency = 0
+        textLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        textLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        textLabel.Font = Enum.Font.GothamBold
+        textLabel.TextSize = 14
+        textLabel.Parent = billboard
+        
+        -- Функция обновления текста
+        local function updateESPText()
+            local player = Players:GetPlayerFromCharacter(playerChar)
+            if player then
+                local prefix = ""
+                local values = player:FindFirstChild("Values")
+                if values then
+                    local prefixValue = values:FindFirstChild("Prefix")
+                    if prefixValue and prefixValue:IsA("StringValue") then
+                        prefix = prefixValue.Value
+                    end
                 end
-            end
-            
-            local distance = 0
-            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-                local targetRoot = playerChar:FindFirstChild("HumanoidRootPart")
-                if targetRoot then
-                    distance = math.floor((targetRoot.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude)
+                
+                local distance = 0
+                if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                    local targetRoot = playerChar:FindFirstChild("HumanoidRootPart")
+                    if targetRoot then
+                        distance = math.floor((targetRoot.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude)
+                    end
                 end
+                
+                textLabel.Text = prefix .. player.Name .. "\n" .. tostring(distance) .. " studs"
             end
-            
-            textLabel.Text = prefix .. player.Name .. "\n" .. tostring(distance) .. " studs"
         end
-    end
-    
-    -- Обновляем текст каждую секунду
-    local espConnection = RunService.Heartbeat:Connect(function()
+        
+        -- Обновляем текст
         updateESPText()
-    end)
-    
-    -- Сохраняем соединение для очистки
-    espBoxes[playerChar].connection = espConnection
+    end
     
     return highlight
 end
@@ -1674,7 +1708,11 @@ local function enableESP()
     end
     
     -- Обработчик для новых игроков
-    local playerAddedConnection = Players.PlayerAdded:Connect(function(player)
+    if connectionESP then
+        connectionESP:Disconnect()
+    end
+    
+    connectionESP = Players.PlayerAdded:Connect(function(player)
         player.CharacterAdded:Connect(function(character)
             if espEnabled then
                 wait(1)
@@ -1683,7 +1721,7 @@ local function enableESP()
         end)
     end)
     
-    -- Обработчик для изменения персонажа
+    -- Обработчик для изменения персонажа существующих игроков
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
             player.CharacterAdded:Connect(function(character)
@@ -1697,10 +1735,12 @@ local function enableESP()
 end
 
 local function disableESP()
+    if connectionESP then
+        connectionESP:Disconnect()
+        connectionESP = nil
+    end
+    
     for character, highlight in pairs(espBoxes) do
-        if highlight.connection then
-            highlight.connection:Disconnect()
-        end
         highlight:Destroy()
     end
     espBoxes = {}
@@ -1727,6 +1767,9 @@ FlySpeedBox.FocusLost:Connect(function()
     if value then
         flySpeed = math.clamp(value, 10, 500)
         FlySpeedBox.Text = tostring(flySpeed)
+        if flyEnabled then
+            enableFly()
+        end
     else
         FlySpeedBox.Text = "50"
         flySpeed = 50
@@ -1734,16 +1777,18 @@ FlySpeedBox.FocusLost:Connect(function()
 end)
 
 SpeedToggleButton.MouseButton1Click:Connect(function()
-    speedMultiplier = tonumber(SpeedBox.Text) or 1
+    local value = tonumber(SpeedBox.Text) or 1
     
-    if speedMultiplier ~= 1 then
-        SpeedToggleButton.Text = "Speed: " .. speedMultiplier .. "x"
-        SpeedToggleButton.BackgroundColor3 = Color3.fromRGB(60, 100, 180)
-        applySpeed()
-    else
+    if speedMultiplier == value then
+        speedMultiplier = 1
         SpeedToggleButton.Text = "Speed: 1x"
         SpeedToggleButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
         resetSpeed()
+    else
+        speedMultiplier = math.clamp(value, 0.1, 10)
+        SpeedToggleButton.Text = "Speed: " .. speedMultiplier .. "x"
+        SpeedToggleButton.BackgroundColor3 = Color3.fromRGB(60, 100, 180)
+        applySpeed()
     end
 end)
 
@@ -1765,23 +1810,25 @@ SpeedBox.FocusLost:Connect(function()
 end)
 
 CarFlyToggleButton.MouseButton1Click:Connect(function()
-    -- Car Fly - упрощенная версия обычного Fly
+    -- Отключаем обычный Fly если включен
     if flyEnabled then
-        disableFly()
         flyEnabled = false
         FlyToggleButton.Text = "Fly: OFF"
         FlyToggleButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+        disableFly()
     end
     
-    flyEnabled = not flyEnabled
+    -- Включаем Car Fly
     carFlySpeed = tonumber(CarFlySpeedBox.Text) or 50
+    flySpeed = carFlySpeed
     
-    if flyEnabled then
+    if not flyEnabled then
+        flyEnabled = true
         CarFlyToggleButton.Text = "Car Fly: ON"
         CarFlyToggleButton.BackgroundColor3 = Color3.fromRGB(180, 100, 60)
-        flySpeed = carFlySpeed
         enableFly()
     else
+        flyEnabled = false
         CarFlyToggleButton.Text = "Car Fly: OFF"
         CarFlyToggleButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
         disableFly()
@@ -1796,6 +1843,7 @@ CarFlySpeedBox.FocusLost:Connect(function()
         
         if flyEnabled then
             flySpeed = carFlySpeed
+            enableFly()
         end
     else
         CarFlySpeedBox.Text = "50"
@@ -1844,14 +1892,14 @@ CloseButton.MouseButton1Click:Connect(function()
         connectionAB:Disconnect()
     end
     if connectionFly then
-        connectionFly:Disconnect()
+        disableFly()
     end
     if connectionNoclip then
-        connectionNoclip:Disconnect()
+        disableNoclip()
     end
-    
-    -- Очистка ESP
-    disableESP()
+    if connectionESP then
+        disableESP()
+    end
     
     -- Очистка телекинеза
     releaseAllParts()
@@ -1884,13 +1932,10 @@ LocalPlayer.CharacterAdded:Connect(function(newChar)
     end
 end)
 
--- Активация Freecam при запуске меню
-Freecam.Start()
-
 -- Уведомление о загрузке
 StarterGui:SetCore("SendNotification", {
     Title = "Main Menu Loaded",
-    Text = "Menu opened! Freecam activated. Use Shift+P to toggle Freecam.",
+    Text = "Menu opened! Use Shift+P to toggle Freecam.",
     Duration = 5
 })
 
@@ -1903,9 +1948,8 @@ print("2. Part Teleporter - выделение и телепортация")
 print("3. Anti-Blacklist - защита от телепортации")
 print("4. Player - игровые модификации")
 print("")
-print("Freecam активирована автоматически!")
 print("Управление Freecam:")
+print("- Shift+P - включить/выключить Freecam")
 print("- WASD + Space/Shift - движение")
 print("- Правая кнопка мыши - вращение камеры")
-print("- Shift+P - включить/выключить Freecam")
 print("========================================")
